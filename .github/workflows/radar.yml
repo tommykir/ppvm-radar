@@ -1,0 +1,40 @@
+name: radar
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # каждые 10 минут (GitHub иногда запускает с задержкой в несколько минут)
+  workflow_dispatch: {}       # кнопка «Run workflow» для ручного запуска
+
+permissions:
+  contents: write
+
+concurrency:
+  group: radar
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Проверить источники и прислать срочное в Telegram
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          RADAR_STATE: state
+        run: python3 -I western_watch.py --alert 6
+
+      - name: Сохранить память радара
+        run: |
+          tail -n 2000 alerts.log > alerts.tmp 2>/dev/null && mv alerts.tmp alerts.log || true
+          find state -name '*.prev.txt' -mtime +30 -delete || true
+          git config user.name "radar-bot"
+          git config user.email "radar-bot@users.noreply.github.com"
+          git add -A state alerts.log
+          git diff --cached --quiet || (git commit -q -m "radar state" && git push -q)

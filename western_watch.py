@@ -326,53 +326,122 @@ def report(hours):
     print("### Недоступно:", "; ".join(errors) if errors else "всё прочитано")
 
 
+def fmt_raw(e):
+    t = html.escape(e["title"][:250])
+    src = f" ({html.escape(e['src'])})" if e["src"] else ""
+    icon = "🔴" if e["kind"] == "policy" or RISK.search(e["title"]) else "🟡"
+    out = f"{icon} <b>{html.escape(e['kind'])}</b> {fmt_date(e['date'])}{src}\n{t}\n{html.escape(e['link'])}"
+    if e["detail"]:
+        out += "\n<pre>" + html.escape(e["detail"][:900]) + "</pre>"
+    return out
+
+
+def fmt_triaged(e, t):
+    icon = "🔴 <b>Срочно</b>" if t["level"] == "urgent" else "🟡 <b>На сегодня</b>"
+    lines = [f"{icon} · {html.escape(e['kind'])}, {fmt_date(e['date'])} МСК",
+             f"<b>{html.escape(t['what'])}</b>"]
+    if t.get("why"):
+        lines.append(f"Для нас: {html.escape(t['why'])}")
+    if t.get("action"):
+        lines.append(f"Что делать: {html.escape(t['action'])}")
+    if t.get("hook"):
+        lines.append(f"Хук: «{html.escape(t['hook'])}»")
+    lines.append(f"Источник: {html.escape(e['link'])}")
+    return "\n".join(lines)
+
+
 def alert(hours):
+    import triage
     seen_path = os.path.join(STATE, "alerted.json")
+    sent_path = os.path.join(STATE, "sent_recent.json")
     os.makedirs(STATE, exist_ok=True)
-    first = not os.path.exists(seen_path)
-    seen = json.load(open(seen_path)) if not first else {}
+    # первый запуск (или первая версия с Claude): только запоминаем, чтобы не засыпать канал старым
+    first = not os.path.exists(seen_path) or not os.path.exists(sent_path)
+    seen = json.load(open(seen_path)) if os.path.exists(seen_path) else {}
+    recent = json.load(open(sent_path)) if os.path.exists(sent_path) else []
     events, errors = collect(hours)
-    fresh = [e for e in events if e["level"] == 2 and e["id"] not in seen]
+    # в Claude идут все новые находки с брендом/деньгами/правилами, а не только «срочные» по словам
+    fresh = [e for e in events if e["level"] >= 1 and e["id"] not in seen]
+    fresh.sort(key=lambda e: (-e["level"], -(e["date"].timestamp() if e["date"] else 0)))
     now = dt.datetime.now(MSK)
     for e in fresh:
         seen[e["id"]] = now.isoformat()
-    # чистим память старше 10 дней
     cutoff = (now - dt.timedelta(days=10)).isoformat()
     seen = {k: v for k, v in seen.items() if v >= cutoff}
     if first:
         json.dump(seen, open(seen_path, "w"))
-        print(f"Первый запуск: запомнил {len(fresh)} текущих событий, алерты пойдут с новых.")
+        print(f"Первый запуск: запомнил {len(fresh)} текущих находок, алерты пойдут с новых.")
         print("Событий всего:", len(events), "| недоступно:", "; ".join(errors) if errors else "ничего")
         return
+    batch = fresh[:40]
+    sent_n, verdict = 0, "нет новых"
+    if batch:
+        contexts = {}
+        urls = {e["id"]: e["link"] for e in batch if e["level"] == 2 and e["kind"] not in ("policy", "Google News")}
+        if urls:
+            got = fetch_many(list(set(urls.values())))
+            for i, u in urls.items():
+                raw, err = got[u]
+                if raw:
+                    contexts[i] = page_text(raw)[:2500]
+        result = triage.triage(batch, contexts, [r["t"] for r in recent])
+        msgs = []
+        if result is None:
+            verdict = "без Claude"
+            msgs = [fmt_raw(e) + "\n<i>(без разбора Claude)</i>" for e in batch if e["level"] == 2]
+            chosen = [e for e in batch if e["level"] == 2]
+        else:
+            chosen = [e for e in batch if result.get(e["id"], {}).get("level") in ("urgent", "today")]
+            chosen.sort(key=lambda e: result[e["id"]]["level"] != "urgent")
+            msgs = [fmt_triaged(e, result[e["id"]]) for e in chosen]
+            verdict = f"Claude: в работу {len(chosen)} из {len(batch)}"
+        if msgs:
+            text = "\n\n".join(msgs)
+            if tg_send.send(text):
+                sent_n = len(msgs)
+                for e in chosen:
+                    t = (result or {}).get(e["id"], {}).get("what") or e["title"]
+                    recent.append({"t": t[:200], "at": now.isoformat()})
+                recent = recent[-50:]
+            else:
+                print("Не отправлено в Telegram; находки:")
+                for e in chosen:
+                    print(" ", e["title"], e["link"])
+                for e in fresh:  # не запоминаем, чтобы повторить в следующий раз
+                    seen.pop(e["id"], None)
+    json.dump(seen, open(seen_path, "w"))
+    json.dump(recent, open(sent_path, "w"), ensure_ascii=False)
     log = os.path.join(os.path.dirname(STATE), "alerts.log")
     with open(log, "a", encoding="utf-8") as f:
-        f.write(f"{now:%Y-%m-%d %H:%M} новых срочных: {len(fresh)}; недоступно: {len(errors)}\n")
-    if fresh:
-        lines = [f"<b>Западный радар</b>, {now:%H:%M} МСК — {len(fresh)} нов."]
-        for e in fresh[:10]:
-            t = html.escape(e["title"][:250])
-            src = f" ({html.escape(e['src'])})" if e["src"] else ""
-            icon = "🔴" if e["kind"] == "policy" or RISK.search(e["title"]) else "🟡"
-            lines.append(f"\n{icon} <b>{html.escape(e['kind'])}</b> {fmt_date(e['date'])}{src}\n{t}\n{html.escape(e['link'])}")
-            if e["detail"]:
-                lines.append("<pre>" + html.escape(e["detail"][:900]) + "</pre>")
-        if len(fresh) > 10:
-            lines.append(f"\n… и ещё {len(fresh) - 10}")
-        if tg_send.send("\n".join(lines)):
-            json.dump(seen, open(seen_path, "w"))
-            print(f"Отправлено в Telegram: {len(fresh)}")
-        else:
-            print("Не отправлено (Telegram не настроен или ошибка); событий:", len(fresh))
-            for e in fresh:
-                print(" ", e["title"], e["link"])
-    else:
-        json.dump(seen, open(seen_path, "w"))
-        print("Новых срочных событий нет. Событий всего:", len(events), "| недоступно:", "; ".join(errors) if errors else "ничего")
+        f.write(f"{now:%Y-%m-%d %H:%M} новых находок: {len(fresh)}; {verdict}; отправлено: {sent_n}; недоступно: {len(errors)}\n")
+    print(f"Новых находок: {len(fresh)}; {verdict}; отправлено: {sent_n}.",
+          "Недоступно:", "; ".join(errors) if errors else "ничего")
+
+
+def test_claude(hours):
+    """Прогнать через Claude находки за N часов и прислать отобранное с пометкой «тест»; память не трогает."""
+    import triage
+    events, errors = collect(hours)
+    batch = sorted([e for e in events if e["level"] >= 1],
+                   key=lambda e: (-e["level"], -(e["date"].timestamp() if e["date"] else 0)))[:40]
+    result = triage.triage(batch, {}, [])
+    if result is None:
+        print("Claude недоступен — проверьте секрет ANTHROPIC_API_KEY")
+        sys.exit(1)
+    chosen = [e for e in batch if result.get(e["id"], {}).get("level") in ("urgent", "today")]
+    chosen.sort(key=lambda e: result[e["id"]]["level"] != "urgent")
+    head = f"🧪 <b>Тест разбора Claude</b>: из {len(batch)} находок за {hours} ч в работу {len(chosen)}"
+    tg_send.send("\n\n".join([head] + [fmt_triaged(e, result[e["id"]]) for e in chosen]))
+    for e in batch:
+        r = result.get(e["id"], {})
+        print(f"{r.get('level', '?'):6} | {e['title'][:110]} | {r.get('what', '')[:120]}")
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    if args and args[0] == "--alert":
+    if args and args[0] == "--test-claude":
+        test_claude(int(args[1]) if len(args) > 1 else 12)
+    elif args and args[0] == "--alert":
         alert(int(args[1]) if len(args) > 1 else 6)
     else:
         report(int(args[0]) if args else 30)

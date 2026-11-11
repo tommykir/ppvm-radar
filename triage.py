@@ -1,0 +1,101 @@
+"""Разбор находок радара через Claude: что случилось, повод ли это для нас и что делать.
+
+Нужен ANTHROPIC_API_KEY в окружении (на GitHub — секрет репозитория).
+Без ключа или при ошибке API возвращает None — тогда радар шлёт находки без разбора.
+"""
+import json
+import os
+
+MODEL = "claude-haiku-5-5"
+
+SYSTEM = """Ты — редактор новостного радара для SMM-команды сервиса «Плати по всему миру».
+Продукт: зарубежные виртуальные и физические карты для россиян, чтобы оплачивать нейросети (ChatGPT, Claude, Gemini, Midjourney, Cursor и т. п.), зарубежные подписки (Apple, Google Play, Spotify, Steam, YouTube Premium) и покупки за границей.
+Аудитория — взрослые, которые работают с ИИ и платят за зарубежные сервисы из России. Задача команды — первыми рассказать в Telegram-канале о важных для них новостях о нейросетях и сервисах.
+
+Тебе дают свежие находки (заголовки, иногда изменения на страницах правил и начало статьи). Для каждой реши:
+- "urgent" — срочно, пост в течение часа: ограничения/баны/правила для пользователей или компаний из России, изменения списков поддерживаемых стран, новые требования к оплате и картам у ИИ-сервисов и цифровых платформ, крупные блокировки аккаунтов.
+- "today" — повод на сегодня: выход новой модели или заметной функции у популярного ИИ-сервиса для обычных пользователей, изменение цен и тарифов, новые платные планы, бесплатный доступ/скидки на подписки, громкие события вокруг ИИ-сервисов, о которых будут говорить.
+- "skip" — не наше: новости для разработчиков и корпоративных клиентов (API, облака, enterprise), финансы и IPO компаний, кадры, суды, железо, политика, обзоры и мнения, справочные страницы без новости, дубликаты одной истории (оставь одну, самую информативную, остальные skip), то, что уже отправляли (список ниже).
+
+Сомневаешься между today и skip — выбирай skip: в канал должно попадать только то, что стоит взять в работу.
+Изменение на странице правил разбирай по самим изменённым строкам: косметику (даты, опечатки, ссылки, вёрстку) — skip.
+Пиши по-русски, коротко и конкретно, без воды. Не выдумывай фактов, которых нет в находке; если суть неясна из заголовка, так и скажи и посоветуй открыть источник.
+Не советуй обходить санкции и не обещай, что с картой «не забанят»."""
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "n": {"type": "integer", "description": "номер находки из списка"},
+                    "level": {"type": "string", "enum": ["urgent", "today", "skip"]},
+                    "what": {"type": "string", "description": "что случилось, 1–2 предложения по-русски"},
+                    "why": {"type": "string", "description": "почему это важно нашей аудитории (пусто для skip)"},
+                    "action": {"type": "string", "description": "что сделать: например «Пост в ТГ сейчас», «Пост сегодня», «Идея для ролика» (пусто для skip)"},
+                    "hook": {"type": "string", "description": "первая строка поста: простая, сразу про новость (пусто для skip)"},
+                },
+                "required": ["n", "level", "what", "why", "action", "hook"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}
+
+
+def triage(events, contexts, recent_sent):
+    """events: список событий радара; contexts: {id: начало статьи}; recent_sent: недавно отправленные заголовки.
+    Возвращает {id: разбор} или None, если Claude недоступен."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return None
+    try:
+        import anthropic
+    except ImportError:
+        print("Claude: пакет anthropic не установлен")
+        return None
+
+    parts = []
+    for i, e in enumerate(events):
+        block = [f"[{i}] источник: {e['kind']}{' / ' + e['src'] if e['src'] else ''}",
+                 f"заголовок: {e['title']}", f"ссылка: {e['link']}"]
+        if e.get("detail"):
+            block.append("изменённые строки страницы (- было, + стало):\n" + e["detail"][:2500])
+        if contexts.get(e["id"]):
+            block.append("начало текста страницы:\n" + contexts[e["id"]][:2000])
+        parts.append("\n".join(block))
+    sent = "\n".join(f"- {t}" for t in recent_sent[-30:]) or "—"
+    prompt = (f"Уже отправляли в канал за последние дни:\n{sent}\n\n"
+              f"Новые находки ({len(events)}):\n\n" + "\n\n".join(parts) +
+              "\n\nРазбери каждую находку по номеру.")
+
+    client = anthropic.Anthropic()
+    try:
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=8000,
+            system=SYSTEM,
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except anthropic.APIStatusError as err:
+        print(f"Claude: ошибка API {err.status_code}: {err.message}")
+        return None
+    except anthropic.APIConnectionError as err:
+        print(f"Claude: нет соединения: {err}")
+        return None
+    if resp.stop_reason in ("refusal", "max_tokens"):
+        print("Claude: ответ не получен, stop_reason =", resp.stop_reason)
+        return None
+    text = next((b.text for b in resp.content if b.type == "text"), "")
+    try:
+        items = json.loads(text)["items"]
+    except (ValueError, KeyError):
+        print("Claude: не удалось разобрать ответ")
+        return None
+    u = resp.usage
+    print(f"Claude: разобрано {len(items)} находок, токены {u.input_tokens} вх / {u.output_tokens} вых")
+    return {events[it["n"]]["id"]: it for it in items if 0 <= it["n"] < len(events)}

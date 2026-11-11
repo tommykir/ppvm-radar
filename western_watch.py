@@ -73,6 +73,16 @@ GNEWS_QUERIES = [
     "ChatGPT price", "Claude subscription price", "Midjourney OR Cursor OR Perplexity pricing",
 ]
 
+# Поездки: русскоязычный Google News (такие новости раньше выходят в российских СМИ и у АТОР)
+GNEWS_RU_QUERIES = [
+    "безвизовый режим для россиян", "визы для россиян", "въезд для россиян",
+    "правила въезда для россиян", "электронная виза для россиян", "новые рейсы из России",
+    "туристы из России новые правила", "оплата картами за границей россиянам",
+]
+TRAVEL = re.compile(r"виз|въезд|рейс|авиа|турист|туризм|границ|отдых|аэропорт|загранпаспорт|за границ|перелёт|перелет|отел", re.I)
+TRAVEL_HOT = re.compile(r"безвиз|отмен\w* виз|без виз|упрост\w*|электронн\w* виз|e-?visa|открыл\w*|возобнов\w*|"
+                        r"запрет\w* въезд|не пуска|перестал\w* (?:пускать|выдавать)|новые правила въезда|прямы\w* рейс", re.I)
+
 BRAND = re.compile(r"anthropic|claude|openai|chatgpt|gpt-\d|gemini|google play|app store|apple|steam|spotify|"
                    r"netflix|youtube|visa\b|mastercard|paypal|midjourney|cursor|perplexity|grok|xai|"
                    r"playstation|xbox|microsoft|copilot|google", re.I)
@@ -279,6 +289,26 @@ def feeds(since, errors):
                     out.append(ev(lvl, "Google News", t, link, d, src=f"запрос «{q}»"))
         except Exception as e:
             errors.append(f"Google News «{q}»: {e}")
+    ru_urls = {q: "https://news.google.com/rss/search?" + urllib.parse.urlencode(
+        {"q": f"{q} when:1d", "hl": "ru", "gl": "RU", "ceid": "RU:ru"}) for q in GNEWS_RU_QUERIES}
+    got_ru = fetch_many(list(ru_urls.values()))
+    for q, url in ru_urls.items():
+        raw, err = got_ru[url]
+        if err:
+            errors.append(f"Google News RU «{q}»: {err}")
+            continue
+        try:
+            for t, link, d, src in feed_items(raw):
+                key = re.sub(r"\W+", "", t.lower())[:80]
+                if not d or d < since or key in seen:
+                    continue
+                seen.add(key)
+                core = re.sub(r"\s+-\s+[^-]{2,60}$", "", t)
+                if TRAVEL.search(core):
+                    lvl = 2 if TRAVEL_HOT.search(core) else 1
+                    out.append(ev(lvl, "Google News RU", t, link, d, src=f"поездки, запрос «{q}»"))
+        except Exception as e:
+            errors.append(f"Google News RU «{q}»: {e}")
     try:
         data = json.loads(fetch("https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=60"))
         for h in data.get("hits", []):
@@ -346,7 +376,7 @@ def fmt_triaged(e, t):
         lines.append(f"Что делать: {html.escape(t['action'])}")
     if t.get("hook"):
         lines.append(f"Хук: «{html.escape(t['hook'])}»")
-    m = re.search(r"\s-\s([^-]{2,60})$", e["title"]) if e["kind"] == "Google News" else None
+    m = re.search(r"\s-\s([^-]{2,60})$", e["title"]) if e["kind"].startswith("Google News") else None
     name = m.group(1).strip() if m else urllib.parse.urlparse(e["link"]).netloc.replace("www.", "")
     lines.append(f'Источник: <a href="{html.escape(e["link"], quote=True)}">{html.escape(name)}</a>')
     return "\n".join(lines)
@@ -379,7 +409,7 @@ def alert(hours):
     sent_n, verdict = 0, "нет новых"
     if batch:
         contexts = {}
-        urls = {e["id"]: e["link"] for e in batch if e["level"] == 2 and e["kind"] not in ("policy", "Google News")}
+        urls = {e["id"]: e["link"] for e in batch if e["level"] == 2 and e["kind"] not in ("policy", "Google News", "Google News RU")}
         if urls:
             got = fetch_many(list(set(urls.values())))
             for i, u in urls.items():

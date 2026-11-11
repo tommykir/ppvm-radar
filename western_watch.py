@@ -342,6 +342,7 @@ def alert(hours):
     if first:
         json.dump(seen, open(seen_path, "w"))
         print(f"Первый запуск: запомнил {len(fresh)} текущих событий, алерты пойдут с новых.")
+        print("Событий всего:", len(events), "| недоступно:", "; ".join(errors) if errors else "ничего")
         return
     log = os.path.join(os.path.dirname(STATE), "alerts.log")
     with open(log, "a", encoding="utf-8") as f:
@@ -366,7 +367,7 @@ def alert(hours):
                 print(" ", e["title"], e["link"])
     else:
         json.dump(seen, open(seen_path, "w"))
-        print("Новых срочных событий нет.", ("Недоступно: " + "; ".join(errors)) if errors else "")
+        print("Новых срочных событий нет. Событий всего:", len(events), "| недоступно:", "; ".join(errors) if errors else "ничего")
 
 
 if __name__ == "__main__":

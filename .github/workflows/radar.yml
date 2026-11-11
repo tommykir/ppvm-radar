@@ -32,7 +32,8 @@ jobs:
 
       - name: Сохранить память радара
         run: |
-          tail -n 2000 alerts.log > alerts.tmp 2>/dev/null && mv alerts.tmp alerts.log || true
+          touch alerts.log
+          tail -n 2000 alerts.log > alerts.tmp && mv alerts.tmp alerts.log
           find state -name '*.prev.txt' -mtime +30 -delete || true
           git config user.name "radar-bot"
           git config user.email "radar-bot@users.noreply.github.com"

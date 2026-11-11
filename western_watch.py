@@ -346,7 +346,9 @@ def fmt_triaged(e, t):
         lines.append(f"Что делать: {html.escape(t['action'])}")
     if t.get("hook"):
         lines.append(f"Хук: «{html.escape(t['hook'])}»")
-    lines.append(f"Источник: {html.escape(e['link'])}")
+    m = re.search(r"\s-\s([^-]{2,60})$", e["title"]) if e["kind"] == "Google News" else None
+    name = m.group(1).strip() if m else urllib.parse.urlparse(e["link"]).netloc.replace("www.", "")
+    lines.append(f'Источник: <a href="{html.escape(e["link"], quote=True)}">{html.escape(name)}</a>')
     return "\n".join(lines)
 
 

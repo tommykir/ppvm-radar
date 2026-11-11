@@ -33,7 +33,8 @@ jobs:
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python3 -I tg_send.py send "Проверка связи: западный радар работает на GitHub и проверяет источники каждые 10 минут."
+        run: |
+          python3 -I tg_send.py send "Проверка связи — западный радар работает на GitHub и проверяет источники каждые 10 минут."
 
       - name: Проверить источники и прислать срочное в Telegram
         env:

@@ -370,6 +370,8 @@ def fmt_triaged(e, t):
     icon = "🔴 <b>Срочно</b>" if t["level"] == "urgent" else "🟡 <b>На сегодня</b>"
     lines = [f"{icon} · {html.escape(e['kind'])}, {fmt_date(e['date'])} МСК",
              f"<b>{html.escape(t['what'])}</b>"]
+    if t.get("russia"):
+        lines.append(f"Для россиян: {html.escape(t['russia'])}")
     if t.get("why"):
         lines.append(f"Для нас: {html.escape(t['why'])}")
     if t.get("action"):

@@ -9,6 +9,10 @@ on:
         description: "Отправить тестовое сообщение в канал"
         type: boolean
         default: false
+      test_openai:
+        description: "Проверить OpenAI без отправки в Telegram"
+        type: boolean
+        default: false
       test_claude:
         description: "Тест Claude: разобрать находки за 12 часов и прислать в канал"
         type: boolean
@@ -32,11 +36,27 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Установить Claude SDK
-        run: pip install -q anthropic
+      - name: Установить SDK анализаторов
+        run: pip install -q anthropic openai
+
+      - name: Проверить OpenAI без Telegram
+        if: ${{ inputs.test_openai }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os, triage
+          if not os.environ.get("OPENAI_API_KEY"):
+              raise SystemExit("Добавьте секрет OPENAI_API_KEY")
+          event = {"id": "smoke", "kind": "test", "src": "", "title": "Тест: новостей нет", "link": "https://example.com"}
+          result = triage.triage([event], {}, [])
+          if result is None or "smoke" not in result:
+              raise SystemExit("Проверка OpenAI не прошла; смотрите код ошибки выше")
+          print("OpenAI работает; Telegram не вызывался")
+          PY
 
       - name: Тестовое сообщение
-        if: ${{ inputs.test }}
+        if: ${{ inputs.test && !inputs.test_openai }}
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
@@ -44,23 +64,27 @@ jobs:
           python3 -I tg_send.py send "Проверка связи — западный радар работает на GitHub и проверяет источники каждые 10 минут."
 
       - name: Тест разбора Claude
-        if: ${{ inputs.test_claude }}
+        if: ${{ inputs.test_claude && !inputs.test_openai }}
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           RADAR_STATE: state
         run: python3 -I western_watch.py --test-claude 12
 
       - name: Проверить источники и прислать срочное в Telegram
+        if: ${{ !inputs.test_openai }}
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           RADAR_STATE: state
         run: python3 -I western_watch.py --alert 6
 
       - name: Сохранить память радара
+        if: ${{ !inputs.test_openai }}
         run: |
           touch alerts.log
           tail -n 2000 alerts.log > alerts.tmp && mv alerts.tmp alerts.log

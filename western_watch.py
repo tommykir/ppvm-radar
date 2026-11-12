@@ -404,6 +404,7 @@ def alert(hours):
     seen = {k: v for k, v in seen.items() if v >= cutoff}
     if first:
         json.dump(seen, open(seen_path, "w"))
+        json.dump(recent, open(sent_path, "w"), ensure_ascii=False)
         print(f"Первый запуск: запомнил {len(fresh)} текущих находок, алерты пойдут с новых.")
         print("Событий всего:", len(events), "| недоступно:", "; ".join(errors) if errors else "ничего")
         return

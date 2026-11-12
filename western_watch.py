@@ -422,14 +422,14 @@ def alert(hours):
         result = triage.triage(batch, contexts, [r["t"] for r in recent])
         msgs = []
         if result is None:
-            verdict = "без Claude"
-            msgs = [fmt_raw(e) + "\n<i>(без разбора Claude)</i>" for e in batch if e["level"] == 2]
+            verdict = "без " + triage.provider_name()
+            msgs = [fmt_raw(e) + "\n<i>(без разбора ИИ)</i>" for e in batch if e["level"] == 2]
             chosen = [e for e in batch if e["level"] == 2]
         else:
             chosen = [e for e in batch if result.get(e["id"], {}).get("level") in ("urgent", "today")]
             chosen.sort(key=lambda e: result[e["id"]]["level"] != "urgent")
             msgs = [fmt_triaged(e, result[e["id"]]) for e in chosen]
-            verdict = f"Claude: в работу {len(chosen)} из {len(batch)}"
+            verdict = f"{triage.provider_name()}: в работу {len(chosen)} из {len(batch)}"
         if msgs:
             text = "\n\n".join(msgs)
             if tg_send.send(text):

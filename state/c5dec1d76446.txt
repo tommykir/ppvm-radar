@@ -541,8 +541,11 @@ Agent approvals & security
 Codex Security
 Overview
 Daybreak Defense Factory Setup
+Findings and fixes
+Import scanner findings
 Security Review
 Improving the threat model
+Notifications
 FAQ
 Codex Security plugin Quickstart
 Run a security scan
@@ -590,7 +593,8 @@ Configuration
 Windows app and CLI deployment
 NFS home directories
 Manage app updates
-Managed configuration Self-host configuration
+Managed configuration Desktop browser policies
+Self-host configuration
 Codex security cookbook
 Remote connections
 Workspace model availability
@@ -660,11 +664,11 @@ Showcase Blog Cookbook Learn Community
 Docs Showcase
 All posts
 Recent
+Securing persistent agents like OpenClaw at OpenAI
 Pushing voice agents further: inside four GPT-Live builds
 Building a retro handheld game with Codex and ModRetro Chromatic
 Designing failover across OpenAI model providers
 Maintaining software with the GPT-6 family
-Bringing my LED display to life with GPT-Live-1 and Codex
 Topics
 General
 API

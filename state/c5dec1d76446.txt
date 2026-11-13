@@ -24,6 +24,8 @@ Sign in with ChatGPT
 Apps powered by your user's ChatGPT plan
 Commerce
 Build commerce flows in ChatGPT
+Agent Access
+Allow verified ChatGPT browser visits to your website
 Ads
 Publish and measure ads in ChatGPT
 Workspace Agents
@@ -295,7 +297,7 @@ Rate limits
 Spend limits
 Admin APIs
 Error codes
-Overview Plugins Sign in with ChatGPT Commerce Ads Workspace Agents ChatGPT + Codex user docs Use cases
+Overview Plugins Sign in with ChatGPT Commerce Agent Access Ads Workspace Agents ChatGPT + Codex user docs Use cases
 Docs Overview
 Home
 Quickstart
@@ -355,17 +357,16 @@ Token reference
 Errors and recovery
 Preview limitations
 Home
-Guides
-Get started
-Best practices
-File Upload
-Overview
-Products
-API
-Overview
-Feeds
-Products
-Promotions
+Partner Playbook Overview
+Commerce Partner Playbook
+Submit product feeds
+Help ensure cloud browser access
+Accept payments
+Build a plugin
+Integrate Sign in with ChatGPT
+Claim your business
+Product feeds · Reference
+Product feed schema
 Ads Overview
 Measurement
 Measurement Pixel

@@ -47,7 +47,6 @@ POLICY_PAGES = {
 
 SITEMAPS = {
     "anthropic.com": ("https://www.anthropic.com/sitemap.xml", None),
-    "Claude product announcements": ("https://claude.com/sitemap.xml", "/resources/articles/"),
     "support.claude.com (en)": ("https://support.claude.com/sitemap.xml", "/en/"),
 }
 SITEMAP_HOT_URL = re.compile(r"/legal|supported|countr|region|availab|\bban|suspend|polic|terms|restrict|"
@@ -325,10 +324,38 @@ def feeds(since, errors):
     return out
 
 
+def claude_announcements(since, errors):
+    base = "https://claude.com"
+    try:
+        index = fetch(base + "/blog", timeout=10)
+    except Exception as error:
+        errors.append(f"Claude blog: {type(error).__name__}")
+        return []
+    paths = list(dict.fromkeys(re.findall(r'href="(/resources/articles/[^"?#]+)"', index)))
+    pages = fetch_many([base + path for path in paths[:15]])
+    events = []
+    for url, (raw, error) in pages.items():
+        if error:
+            errors.append(f"{url}: {type(error).__name__}")
+            continue
+        published = re.search(r'<meta property="article:published_time" content="([^"]+)"', raw)
+        title = re.search(r"<title>(.*?)</title>", raw, re.S)
+        if not published or not title:
+            continue
+        stamp = published[1]
+        date = parse_date(stamp)
+        # The blog sometimes gives only a calendar day. Give those posts a
+        # full day for discovery and let the stable event ID prevent repeats.
+        if not date or date < since - (dt.timedelta(days=1) if len(stamp) == 10 else dt.timedelta()):
+            continue
+        events.append(ev(2, "Claude Blog", html.unescape(title[1]), url, date))
+    return events
+
+
 def collect(hours):
     since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)
     errors = []
-    events = policies(errors) + sitemaps(since, errors) + feeds(since, errors)
+    events = policies(errors) + sitemaps(since, errors) + feeds(since, errors) + claude_announcements(since, errors)
     return events, errors
 
 

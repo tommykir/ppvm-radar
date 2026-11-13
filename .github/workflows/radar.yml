@@ -1,8 +1,6 @@
 name: radar
 
 on:
-  schedule:
-    - cron: "7-59/10 * * * *"  # каждые 10 минут, в :07, :17… (не в пиковые :00) (GitHub иногда запускает с задержкой в несколько минут)
   workflow_dispatch:          # кнопка «Run workflow» для ручного запуска
     inputs:
       test:

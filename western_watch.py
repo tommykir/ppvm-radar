@@ -47,6 +47,7 @@ POLICY_PAGES = {
 
 SITEMAPS = {
     "anthropic.com": ("https://www.anthropic.com/sitemap.xml", None),
+    "Claude product announcements": ("https://claude.com/sitemap.xml", "/resources/articles/"),
     "support.claude.com (en)": ("https://support.claude.com/sitemap.xml", "/en/"),
 }
 SITEMAP_HOT_URL = re.compile(r"/legal|supported|countr|region|availab|\bban|suspend|polic|terms|restrict|"
@@ -405,33 +406,42 @@ def article_key(url):
                                     parsed.path.rstrip("/"), query, ""))
 
 
-def read_candidates(events, recent):
+def read_candidates(events, recent, unread=None):
     from concurrent.futures import ThreadPoolExecutor
 
     def read(event):
         if event["kind"] == "policy":
             return event, event["detail"], ""
         url = event["src"] if event["kind"] == "Hacker News" else event["link"]
-        if not url.startswith(("https://", "http://")) or OUTAGE.search(event["title"]):
-            return event, "", ""
+        if OUTAGE.search(event["title"]):
+            return event, "", "outage"
+        if not url.startswith(("https://", "http://")):
+            return event, "", "no article URL"
         try:
             from trafilatura import extract
             raw, resolved = fetch(url, timeout=10, with_url=True)
             host = urllib.parse.urlsplit(resolved).hostname
             if host in {"news.google.com", "news.ycombinator.com"}:
-                return event, "", ""
+                return event, "", "aggregator did not redirect"
             body = extract(raw, url=resolved, include_comments=False) or ""
-        except Exception:
-            return event, "", ""
+        except Exception as error:
+            reason = f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+            return event, "", reason
         if len(body) < 200:
-            return event, "", ""
+            return event, "", "article text unavailable"
         return {**event, "link": resolved}, body[:6500], article_key(resolved)
 
     links = {r.get("link") for r in recent}
     candidates, contexts = [], {}
     with ThreadPoolExecutor(max_workers=12) as pool:
         for event, body, key in pool.map(read, events):
-            if not body or (key and key in links):
+            if not body:
+                if unread is not None and key not in {"outage", "no article URL"}:
+                    unread.append(event["id"])
+                print(f"Radar [{key or 'empty'}]: {event['title'][:240]} | {event['link']}")
+                continue
+            if key and key in links:
+                print(f"Radar [duplicate]: {event['title'][:240]} | {event['link']}")
                 continue
             if key:
                 links.add(key)
@@ -467,7 +477,10 @@ def alert(hours):
     batch = fresh[:40]
     sent_n, verdict = 0, "нет новых"
     if batch:
-        candidates, contexts = read_candidates(batch, recent)
+        unread = []
+        candidates, contexts = read_candidates(batch, recent, unread)
+        for event_id in unread:
+            seen.pop(event_id, None)
         result = triage.triage(candidates, contexts, [r["t"] for r in recent])
         if result is None:
             verdict = "разбор недоступен"

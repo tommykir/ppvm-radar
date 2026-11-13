@@ -346,7 +346,8 @@ def claude_announcements(since, errors):
         date = parse_date(stamp)
         # The blog sometimes gives only a calendar day. Give those posts a
         # full day for discovery and let the stable event ID prevent repeats.
-        if not date or date < since - (dt.timedelta(days=1) if len(stamp) == 10 else dt.timedelta()):
+        threshold = since.replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(days=1) if len(stamp) == 10 else since
+        if not date or date < threshold:
             continue
         events.append(ev(2, "Claude Blog", html.unescape(title[1]), url, date))
     return events

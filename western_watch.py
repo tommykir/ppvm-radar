@@ -100,12 +100,13 @@ MAJOR = {"TechCrunch AI", "The Verge", "Ars Technica", "Wired AI", "Engadget", "
 MONEY = re.compile(r"\bprice|\bpricing|\bplans?\b|subscription|\bpayment|paywall|free tier|tariff|\$\d", re.I)
 
 
-def fetch(url, timeout=30, hops=5):
+def fetch(url, timeout=30, hops=5, *, with_url=False):
     for _ in range(hops):
         req = urllib.request.Request(url, headers=UA)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.read().decode("utf-8", "ignore")
+                text = r.read().decode("utf-8", "ignore")
+                return (text, r.geturl()) if with_url else text
         except urllib.error.HTTPError as e:
             loc = e.headers.get("Location")
             if e.code in (307, 308) and loc:
@@ -315,8 +316,9 @@ def feeds(since, errors):
             d = dt.datetime.fromtimestamp(h["created_at_i"], dt.timezone.utc)
             lvl = level_for(h.get("title") or "")
             if d >= since and lvl >= 1:
-                out.append(ev(lvl, "Hacker News", f"{h.get('title')} [{h.get('points')} очк.]",
-                              f"https://news.ycombinator.com/item?id={h['objectID']}", d))
+                out.append(ev(lvl, "Hacker News", h["title"],
+                              f"https://news.ycombinator.com/item?id={h['objectID']}", d,
+                              src=h.get("url") or ""))
     except Exception as e:
         errors.append(f"Hacker News: {e}")
     return out
@@ -384,6 +386,60 @@ def fmt_triaged(e, t):
     return "\n".join(lines)
 
 
+# Обычный сбой не меняет правила доступа для россиян. Служебные
+# обновления по нему остаются в отчёте, без алертов в Telegram.
+OUTAGE = re.compile(
+    r"\boutages?\b|\b(?:service|site|claude|chatgpt|gemini|copilot) (?:is )?down\b|"
+    r"\b(?:elevated|increased|high) error|\b(?:service disruption|degraded performance)\b|"
+    r"\b(?:сбой|сбои|сбоя|массовые ошибки|перебои)\b", re.I
+)
+
+
+def article_key(url):
+    parsed = urllib.parse.urlsplit(url)
+    query = urllib.parse.urlencode([
+        (k, v) for k, v in urllib.parse.parse_qsl(parsed.query)
+        if not k.startswith("utm_") and k not in {"fbclid", "gclid"}
+    ])
+    return urllib.parse.urlunsplit(("", parsed.netloc.lower().removeprefix("www."),
+                                    parsed.path.rstrip("/"), query, ""))
+
+
+def read_candidates(events, recent):
+    from concurrent.futures import ThreadPoolExecutor
+
+    def read(event):
+        if event["kind"] == "policy":
+            return event, event["detail"], ""
+        url = event["src"] if event["kind"] == "Hacker News" else event["link"]
+        if not url.startswith(("https://", "http://")) or OUTAGE.search(event["title"]):
+            return event, "", ""
+        try:
+            from trafilatura import extract
+            raw, resolved = fetch(url, timeout=10, with_url=True)
+            host = urllib.parse.urlsplit(resolved).hostname
+            if host in {"news.google.com", "news.ycombinator.com"}:
+                return event, "", ""
+            body = extract(raw, url=resolved, include_comments=False) or ""
+        except Exception:
+            return event, "", ""
+        if len(body) < 200:
+            return event, "", ""
+        return {**event, "link": resolved}, body[:6500], article_key(resolved)
+
+    links = {r.get("link") for r in recent}
+    candidates, contexts = [], {}
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        for event, body, key in pool.map(read, events):
+            if not body or (key and key in links):
+                continue
+            if key:
+                links.add(key)
+            candidates.append(event)
+            contexts[event["id"]] = body
+    return candidates, contexts
+
+
 def alert(hours):
     import triage
     seen_path = os.path.join(STATE, "alerted.json")
@@ -398,7 +454,7 @@ def alert(hours):
     fresh = [e for e in events if e["level"] >= 1 and e["id"] not in seen]
     fresh.sort(key=lambda e: (-e["level"], -(e["date"].timestamp() if e["date"] else 0)))
     now = dt.datetime.now(MSK)
-    for e in fresh:
+    for e in (fresh if first else fresh[:40]):
         seen[e["id"]] = now.isoformat()
     cutoff = (now - dt.timedelta(days=10)).isoformat()
     seen = {k: v for k, v in seen.items() if v >= cutoff}
@@ -411,32 +467,26 @@ def alert(hours):
     batch = fresh[:40]
     sent_n, verdict = 0, "нет новых"
     if batch:
-        contexts = {}
-        urls = {e["id"]: e["link"] for e in batch if e["level"] == 2 and e["kind"] not in ("policy", "Google News", "Google News RU")}
-        if urls:
-            got = fetch_many(list(set(urls.values())))
-            for i, u in urls.items():
-                raw, err = got[u]
-                if raw:
-                    contexts[i] = page_text(raw)[:2500]
-        result = triage.triage(batch, contexts, [r["t"] for r in recent])
-        msgs = []
+        candidates, contexts = read_candidates(batch, recent)
+        result = triage.triage(candidates, contexts, [r["t"] for r in recent])
         if result is None:
-            verdict = "без " + triage.provider_name()
-            msgs = [fmt_raw(e) + "\n<i>(без разбора ИИ)</i>" for e in batch if e["level"] == 2]
-            chosen = [e for e in batch if e["level"] == 2]
+            verdict = "разбор недоступен"
+            chosen = []
+            for event in candidates:
+                seen.pop(event["id"], None)
         else:
-            chosen = [e for e in batch if result.get(e["id"], {}).get("level") in ("urgent", "today")]
+            chosen = [e for e in candidates if result.get(e["id"], {}).get("level") in ("urgent", "today")]
             chosen.sort(key=lambda e: result[e["id"]]["level"] != "urgent")
-            msgs = [fmt_triaged(e, result[e["id"]]) for e in chosen]
-            verdict = f"{triage.provider_name()}: в работу {len(chosen)} из {len(batch)}"
+            verdict = f"{triage.provider_name()}: в работу {len(chosen)} из {len(candidates)} прочитанных (всего {len(batch)})"
+        msgs = [fmt_triaged(e, result[e["id"]]) for e in chosen]
         if msgs:
             text = "\n\n".join(msgs)
             if tg_send.send(text):
                 sent_n = len(msgs)
                 for e in chosen:
                     t = (result or {}).get(e["id"], {}).get("what") or e["title"]
-                    recent.append({"t": t[:200], "at": now.isoformat()})
+                    recent.append({"t": t[:300], "at": now.isoformat(),
+                                   "link": article_key(e["link"]) if e["kind"] != "policy" else ""})
                 recent = recent[-50:]
             else:
                 print("Не отправлено в Telegram; находки:")
@@ -459,7 +509,8 @@ def test_claude(hours):
     events, errors = collect(hours)
     batch = sorted([e for e in events if e["level"] >= 1],
                    key=lambda e: (-e["level"], -(e["date"].timestamp() if e["date"] else 0)))[:40]
-    result = triage.triage(batch, {}, [])
+    batch, contexts = read_candidates(batch, [])
+    result = triage.triage(batch, contexts, [])
     if result is None:
         print("Claude недоступен — проверьте секрет ANTHROPIC_API_KEY")
         sys.exit(1)

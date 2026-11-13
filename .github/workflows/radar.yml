@@ -35,7 +35,7 @@ jobs:
           python-version: "3.12"
 
       - name: Установить SDK анализаторов
-        run: pip install -q anthropic openai
+        run: pip install -q anthropic openai trafilatura
 
       - name: Проверить OpenAI без Telegram
         if: ${{ inputs.test_openai }}

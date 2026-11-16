@@ -359,7 +359,7 @@ Manage your Google AI plan from Gemini Apps
 8 of 19
 Where you can use the Gemini web app
 9 of 19
-Upload & analyze files in Gemini Apps
+Attach & analyze files in Gemini Apps
 10 of 19
 Organize your projects with notebooks in Gemini Apps
 11 of 19

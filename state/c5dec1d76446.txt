@@ -63,7 +63,7 @@ Docs Overview
 Home
 Get started
 Quickstart
-Using GPT-6.2 Astra
+Using GPT-6.2
 Key concepts
 API credits for ChatGPT subscribers
 Core concepts
@@ -741,7 +741,7 @@ Try ChatGPT
 Home
 Get started
 Quickstart
-Using GPT-6.2 Astra
+Using GPT-6.2
 Key concepts
 API credits for ChatGPT subscribers
 Core concepts

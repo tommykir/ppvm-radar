@@ -603,6 +603,7 @@ Remote connections
 Workspace model availability
 Advanced deployment
 Amazon Bedrock
+Google Cloud
 GovCloud deployment
 Connect to a gateway
 Roll out a gateway

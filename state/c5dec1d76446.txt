@@ -684,10 +684,10 @@ Docs Showcase
 All posts
 Recent
 Prompting GPT-Live for languages and regional accents
+Time awareness and async input for personal agents
 Securing persistent agents like OpenClaw at OpenAI
 Pushing voice agents further: inside four GPT-Live builds
 Building a retro handheld game with Codex and ModRetro Chromatic
-Designing failover across OpenAI model providers
 Topics
 General
 API

@@ -1,8 +1,10 @@
 For the complete documentation index, see llms.txt . Markdown versions of documentation pages are available by appending
 .md to the page URL.
-ChatGPT Start searching API Dashboard
+ChatGPT API Dashboard
 Try ChatGPT
-Theme Light Dark System
+Language
+Loading languages…
+Theme Theme
 Home
 API Overview
 Get started with the OpenAI API
@@ -54,7 +56,6 @@ Search docs
 Suggested
 responses create reasoning_effort realtime prompt caching
 Primary navigation API ChatGPT Docs Use cases Training Resources Resources
-Theme Light Dark System
 Search docs
 Suggested
 responses create reasoning_effort realtime prompt caching

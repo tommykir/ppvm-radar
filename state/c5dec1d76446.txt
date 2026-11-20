@@ -257,6 +257,7 @@ Cost optimization
 Prompt caching Prompt cache diagnostics
 Batch
 Flex processing
+Reserved Tier
 Safety and governance
 Safety best practices
 Red teaming

@@ -741,6 +741,7 @@ Discord
 Reddit
 API Dashboard
 Try ChatGPT
+Ask AI
 Home
 Get started
 Quickstart

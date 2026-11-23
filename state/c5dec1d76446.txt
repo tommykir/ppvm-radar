@@ -465,6 +465,7 @@ Create a site
 Data and connections
 Publish and share
 Manage a site
+Usage and cost
 dots
 Meet dots
 Getting started

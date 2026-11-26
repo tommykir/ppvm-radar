@@ -16,6 +16,8 @@ Help Center
 Community
 Privacy Hub
 Gemini Apps
+Notification
+Learn how to manage your Gemini App
 Where you can use the Gemini web app
 The Gemini web app is currently available in more than 70 languages and over 230 countries and territories.
 We’ll gradually expand to more countries and territories in a way that's consistent with local regulations and our AI principles .
